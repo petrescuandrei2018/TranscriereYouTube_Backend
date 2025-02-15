@@ -2,11 +2,8 @@
 
 public interface ITranscriereService
 {
+    Task StartTranscriereAsync(string videoUrl, string limba);
     string DescarcaVideo(string videoUrl);
     string ExtrageAudio(string videoPath);
-    string TranscrieAudio(string audioPath, string limba);
-    string GenereazaFisierDocx(string continut, string limba);
-    string GenereazaFisierPdf(string continut, string limba);
-    string GenereazaFisierTxt(string continut);
-    void TranscrieAudioProgresiv(string audioPath, string limba, ConcurrentQueue<string> progres);
+    Task TranscrieAudioProgresiv(string audioPath, string limba, ConcurrentQueue<string> progres);
 }

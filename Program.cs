@@ -1,5 +1,10 @@
-using Microsoft.AspNetCore.Hosting;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using TranscriereYouTube.Services;
+using TranscriereYouTube.Interfaces;
+using TranscriereYouTube.Factories;
+using TranscriereYouTube.Facades;
 
 namespace TranscriereYouTube
 {
@@ -7,14 +12,39 @@ namespace TranscriereYouTube
     {
         public static void Main(string[] args)
         {
-            CreateHostBuilder(args).Build().Run();
-        }
+            var builder = WebApplication.CreateBuilder(args);
 
-        public static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureWebHostDefaults(webBuilder =>
+            // 1️⃣ ✅ Adăugare servicii
+            builder.Services.AddControllers();
+            builder.Services.AddSwaggerGen();
+            builder.Services.AddScoped<IDescarcatorService, DescarcatorService>();
+            builder.Services.AddScoped<IProcesorVideoService, ProcesorVideoService>();
+            builder.Services.AddScoped<ITranscriereService, TranscriereService>();
+            builder.Services.AddScoped<ITranscriereFacade, TranscriereFacade>();
+            builder.Services.AddSingleton<ServiceFactory>();
+
+            var app = builder.Build();
+
+            // 2️⃣ ✅ Configurare pipeline middleware
+            if (app.Environment.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+                app.UseSwagger();
+                app.UseSwaggerUI(c =>
                 {
-                    webBuilder.UseStartup<Startup>();
+                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "API Transcriere YouTube v1");
+                    c.RoutePrefix = string.Empty; // Deschide direct pe root
                 });
+            }
+
+            app.UseRouting();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+            });
+
+            app.Run();
+        }
     }
 }

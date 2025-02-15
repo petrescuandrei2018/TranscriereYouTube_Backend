@@ -1,8 +1,4 @@
-namespace TranscriereYouTube.Interfaces
+﻿public interface IDescarcatorService
 {
-    public interface IDescarcatorService
-    {
-        string Descarca(string videoUrl);
-        string ExtrageAudio(string videoPath);
-    }
+    string Descarca(string videoUrl);
 }

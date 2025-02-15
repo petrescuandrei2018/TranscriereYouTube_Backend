@@ -1,5 +1,6 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using TranscriereYouTube.Interfaces;
+using TranscriereYouTube.Models;
 
 namespace TranscriereYouTube.Controllers
 {
@@ -15,10 +16,10 @@ namespace TranscriereYouTube.Controllers
         }
 
         [HttpPost("start")]
-        public IActionResult StartDescarcare([FromBody] string videoUrl)
+        public IActionResult StartDescarcare([FromBody] DescarcareRequest request)
         {
-            var rezultat = _descarcatorService.Descarca(videoUrl);
-            return Ok(rezultat);
+            var rezultat = _descarcatorService.Descarca(request.VideoUrl);
+            return Ok(new { CaleFisier = rezultat });
         }
     }
 }

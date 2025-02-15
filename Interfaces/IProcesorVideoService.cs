@@ -1,7 +1,5 @@
-namespace TranscriereYouTube.Interfaces
+﻿public interface IProcesorVideoService
 {
-    public interface IProcesorVideoService
-    {
-        void CombinaVideoAudio(string videoPath, string audioPath);
-    }
+    void CombinaVideoAudio(string videoPath, string audioPath);
+    bool VerificaIntegritateFisier(string filePath);
 }
