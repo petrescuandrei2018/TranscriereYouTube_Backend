@@ -1,44 +1,63 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Text;
+using Microsoft.Extensions.Configuration;
 
 namespace TranscriereYouTube.Utils
 {
-    public class ProcessRunner
+    public static class ProcessRunner
     {
-        public static int RunCommand(string command)
+        private static IConfiguration _config;
+
+        // Inițializare configurație
+        public static void Initialize(IConfiguration config)
+        {
+            _config = config;
+        }
+
+        /// <summary>
+        /// Rulează un executabil specificat din appsettings.json cu argumentele oferite.
+        /// </summary>
+        public static (bool Success, string Output, string Error) Execute(string executableKey, string arguments)
         {
             try
             {
-                var processInfo = new ProcessStartInfo("cmd.exe", $"/c {command}")
+                Console.WriteLine($"[INFO] Pornire comandă: {executableKey} cu argumente: {arguments}");
+                var executablePath = _config[$"TranscriereSettings:{executableKey}"];
+                if (string.IsNullOrEmpty(executablePath))
+                    throw new Exception($"Calea pentru {executableKey} nu este specificată în appsettings.json.");
+
+                var process = new Process
                 {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = executablePath,
+                        Arguments = arguments,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
                 };
 
-                using var process = Process.Start(processInfo);
-                if (process == null) return -1;
-
-                while (!process.StandardOutput.EndOfStream)
-                {
-                    var output = process.StandardOutput.ReadLine();
-                    Console.WriteLine($"[INFO] {output}");
-                }
-
-                while (!process.StandardError.EndOfStream)
-                {
-                    var error = process.StandardError.ReadLine();
-                    Console.WriteLine($"[ERROR] {error}");
-                }
-
+                process.Start();
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
-                return process.ExitCode;
+
+                bool success = process.ExitCode == 0;
+
+                if (!success)
+                    Console.WriteLine($"[ERROR] Comanda a eșuat: {error}");
+                else
+                    Console.WriteLine($"[SUCCESS] Rezultat: {output}");
+
+                return (success, output, error);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[EROARE] Execuție comandă eșuată: {ex.Message}");
-                return -1;
+                Console.WriteLine($"[CRITICAL] Eroare la execuția comenzii: {ex.Message}");
+                return (false, string.Empty, ex.Message);
             }
         }
     }

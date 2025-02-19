@@ -14,36 +14,41 @@ namespace TranscriereYouTube
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // 1️⃣ ✅ Adăugare servicii
+            // ✅ Adăugare servicii
             builder.Services.AddControllers();
+            builder.Services.AddEndpointsApiExplorer(); // Necesită pentru Swagger
             builder.Services.AddSwaggerGen();
+
+            // ✅ Înregistrare servicii
             builder.Services.AddScoped<IDescarcatorService, DescarcatorService>();
             builder.Services.AddScoped<IProcesorVideoService, ProcesorVideoService>();
             builder.Services.AddScoped<ITranscriereService, TranscriereService>();
             builder.Services.AddScoped<ITranscriereFacade, TranscriereFacade>();
             builder.Services.AddSingleton<ServiceFactory>();
 
+            // Inițializare ServiceFactory cu IConfiguration
+            var serviceFactory = new ServiceFactory(builder.Configuration);
+
             var app = builder.Build();
 
-            // 2️⃣ ✅ Configurare pipeline middleware
-            if (app.Environment.IsDevelopment())
+            // ✅ Configurare pipeline middleware
+
+            // Activăm Swagger în toate mediile
+            app.UseSwagger();
+            app.UseSwaggerUI(c =>
             {
-                app.UseDeveloperExceptionPage();
-                app.UseSwagger();
-                app.UseSwaggerUI(c =>
-                {
-                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "API Transcriere YouTube v1");
-                    c.RoutePrefix = string.Empty; // Deschide direct pe root
-                });
-            }
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "API Transcriere YouTube v1");
+                c.RoutePrefix = string.Empty; // Deschide Swagger pe root "/"
+            });
 
+            // Middleware pentru routing și controllere
             app.UseRouting();
-
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
             });
 
+            // Rulează aplicația
             app.Run();
         }
     }

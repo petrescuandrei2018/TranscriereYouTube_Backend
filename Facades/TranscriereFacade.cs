@@ -1,4 +1,5 @@
-﻿using TranscriereYouTube.Interfaces;
+﻿using System.Threading.Tasks;
+using TranscriereYouTube.Interfaces;
 
 namespace TranscriereYouTube.Facades
 {
@@ -20,9 +21,9 @@ namespace TranscriereYouTube.Facades
         /// <param name="audioPath">Calea către fișierul audio.</param>
         /// <param name="limba">Limba în care se va face transcrierea.</param>
         /// <returns>Textul transcris.</returns>
-        public string Transcrie(string audioPath, string limba)
+        public async Task<string> Transcrie(string audioPath, string limba)
         {
-            return _transcriereService.TranscrieAudio(audioPath, limba);
+            return await _transcriereService.TranscrieAudio(audioPath, limba);
         }
     }
 }
