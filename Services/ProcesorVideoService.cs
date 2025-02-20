@@ -1,32 +1,31 @@
-﻿using System;
-using System.Diagnostics;
-using System.IO;
-using TranscriereYouTube.Interfaces;
-using TranscriereYouTube.Utils;
-
-public class ProcesorVideoService : IProcesorVideoService
+﻿public class ProcesorVideoService : IProcesorVideoService
 {
-    public void CombinaVideoAudio(string videoPath, string audioPath)
+    private readonly IProcessRunner _processRunner;
+    private readonly ICommandFactory _commandFactory;
+
+    public ProcesorVideoService(IProcessRunner processRunner, ICommandFactory commandFactory)
     {
-        // Construim argumentele pentru ffmpeg
-        string arguments = $"-i \"{videoPath}\" -i \"{audioPath}\" -c:v copy -c:a aac -strict experimental \"video_final.mp4\"";
-
-        // Folosim cheia "FFmpegPath" din appsettings.json
-        var (success, output, error) = ProcessRunner.Execute("FFmpegPath", arguments);
-
-        if (!success)
-        {
-            Console.WriteLine($"Eroare la combinarea video și audio: {error}");
-            throw new Exception("Combinarea video și audio a eșuat.");
-        }
-        else
-        {
-            Console.WriteLine("Combinarea video și audio s-a realizat cu succes.");
-        }
+        _processRunner = processRunner;
+        _commandFactory = commandFactory;
     }
 
-    public bool VerificaIntegritateFisier(string filePath)
+    public async Task<Result<string>> ConvertVideoFormatAsync(string inputPath, string outputFormat)
     {
-        return File.Exists(filePath) && new FileInfo(filePath).Length > 0;
+        var outputPath = Path.ChangeExtension(inputPath, outputFormat);
+        var command = $"ffmpeg -i \"{inputPath}\" \"{outputPath}\"";
+
+        var result = await _processRunner.RunCommandAsync("cmd.exe", $"/C {command}");
+
+        return result.Success ? Result<string>.Ok(outputPath) : Result<string>.Fail(result.ErrorMessage);
+    }
+
+    public async Task<Result<string>> ExtractClipAsync(string inputPath, TimeSpan startTime, TimeSpan duration)
+    {
+        var outputPath = $"{Path.GetFileNameWithoutExtension(inputPath)}_clip.mp4";
+        var command = $"ffmpeg -i \"{inputPath}\" -ss {startTime} -t {duration} -c copy \"{outputPath}\"";
+
+        var result = await _processRunner.RunCommandAsync("cmd.exe", $"/C {command}");
+
+        return result.Success ? Result<string>.Ok(outputPath) : Result<string>.Fail(result.ErrorMessage);
     }
 }

@@ -1,10 +1,7 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using TranscriereYouTube.Services;
-using TranscriereYouTube.Interfaces;
-using TranscriereYouTube.Factories;
-using TranscriereYouTube.Facades;
+using TranscriereYouTube_Backend.Interfaces;
 
 namespace TranscriereYouTube
 {
@@ -14,34 +11,42 @@ namespace TranscriereYouTube
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // ✅ Adăugare servicii
+            // ✅ Încarcă fișierul appsettings.json din folderul Config
+            var configPath = Path.Combine(Directory.GetCurrentDirectory(), "Config", "appsettings.json");
+            builder.Configuration.SetBasePath(Directory.GetCurrentDirectory())
+                                 .AddJsonFile(configPath, optional: false, reloadOnChange: true);
+
+            // ✅ Înregistrăm Configuration în DI
+            builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
+
+            // Înregistrăm serviciile necesare
+            builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
+            builder.Services.AddSingleton<ICommandFactory, CommandFactory>();
+            builder.Services.AddSingleton<IDescarcatorService, DescarcatorService>();
+            builder.Services.AddSingleton<IProcesorAudioService, ProcesorAudioService>();
+            builder.Services.AddSingleton<IProcesorVideoService, ProcesorVideoService>();
+            builder.Services.AddSingleton<ITranscriereService, TranscriereService>();
+            builder.Services.AddSingleton<ITranscriereFacade, TranscriereFacade>();
+            builder.Services.AddSingleton<ILoggerService, LoggerService>();
+            builder.Services.AddSingleton<ITranscriereValidator, TranscriereValidator>();
+            builder.Services.AddSingleton<IWebSocketService, WebSocketService>();
+
+            // Configurare controlere și Swagger
             builder.Services.AddControllers();
-            builder.Services.AddEndpointsApiExplorer(); // Necesită pentru Swagger
+            builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
-
-            // ✅ Înregistrare servicii
-            builder.Services.AddScoped<IDescarcatorService, DescarcatorService>();
-            builder.Services.AddScoped<IProcesorVideoService, ProcesorVideoService>();
-            builder.Services.AddScoped<ITranscriereService, TranscriereService>();
-            builder.Services.AddScoped<ITranscriereFacade, TranscriereFacade>();
-            builder.Services.AddSingleton<ServiceFactory>();
-
-            // Inițializare ServiceFactory cu IConfiguration
-            var serviceFactory = new ServiceFactory(builder.Configuration);
 
             var app = builder.Build();
 
-            // ✅ Configurare pipeline middleware
-
-            // Activăm Swagger în toate mediile
+            // Configurare Swagger
             app.UseSwagger();
             app.UseSwaggerUI(c =>
             {
                 c.SwaggerEndpoint("/swagger/v1/swagger.json", "API Transcriere YouTube v1");
-                c.RoutePrefix = string.Empty; // Deschide Swagger pe root "/"
+                c.RoutePrefix = string.Empty;
             });
 
-            // Middleware pentru routing și controllere
+            // Middleware pentru routing
             app.UseRouting();
             app.UseEndpoints(endpoints =>
             {
@@ -50,6 +55,7 @@ namespace TranscriereYouTube
 
             // Rulează aplicația
             app.Run();
+
         }
     }
 }

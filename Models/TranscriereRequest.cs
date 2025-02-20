@@ -1,5 +1,5 @@
 ﻿public class TranscriereRequest
 {
-    public string VideoUrl { get; set; }
-    public string Limba { get; set; }
+    public string VideoPath { get; set; }
+    public string Language { get; set; }
 }

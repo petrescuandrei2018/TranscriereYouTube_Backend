@@ -1,4 +1,4 @@
 ﻿public interface IDescarcatorService
 {
-    string Descarca(string videoUrl);
+    Task<Result<string>> DescarcaVideoAsync(string videoUrl);
 }

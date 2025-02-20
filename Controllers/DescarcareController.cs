@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using TranscriereYouTube.Interfaces;
 using TranscriereYouTube.Models;
 
 namespace TranscriereYouTube.Controllers
@@ -16,10 +15,17 @@ namespace TranscriereYouTube.Controllers
         }
 
         [HttpPost("start")]
-        public IActionResult StartDescarcare([FromBody] DescarcareRequest request)
+        public async Task<IActionResult> StartDescarcare([FromBody] DescarcareRequest request)
         {
-            var rezultat = _descarcatorService.Descarca(request.VideoUrl);
-            return Ok(new { CaleFisier = rezultat });
+            if (string.IsNullOrEmpty(request.VideoUrl))
+                return BadRequest("⚠️ URL-ul videoclipului este necesar.");
+
+            var rezultat = await _descarcatorService.DescarcaVideoAsync(request.VideoUrl);
+
+            if (!rezultat.Success)
+                return BadRequest(new { Eroare = rezultat.ErrorMessage });
+
+            return Ok(new { CaleFisier = rezultat.Data });
         }
     }
 }
