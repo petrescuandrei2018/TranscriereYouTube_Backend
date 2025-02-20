@@ -1,31 +1,31 @@
-﻿using Microsoft.Extensions.Configuration;
-using TranscriereYouTube.Interfaces;
-using TranscriereYouTube.Services;
-
-namespace TranscriereYouTube.Factories
+﻿public class ServiceFactory : IServiceFactory
 {
-    public class ServiceFactory
+    private readonly IProcessRunner _processRunner;
+    private readonly ICommandFactory _commandFactory;
+
+    public ServiceFactory(IProcessRunner processRunner, ICommandFactory commandFactory)
     {
-        private readonly IConfiguration _configuration;
+        _processRunner = processRunner;
+        _commandFactory = commandFactory;
+    }
 
-        public ServiceFactory(IConfiguration configuration)
-        {
-            _configuration = configuration;
-        }
+    public IDescarcatorService CreateDescarcatorService()
+    {
+        return new DescarcatorService(_processRunner, _commandFactory);
+    }
 
-        /// <summary>
-        /// Creează o instanță a serviciului responsabil cu descărcarea videoclipurilor.
-        /// </summary>
-        public IDescarcatorService CreateDescarcatorService() => new DescarcatorService();
+    public IProcesorAudioService CreateProcesorAudioService()
+    {
+        return new ProcesorAudioService(_processRunner, _commandFactory);
+    }
 
-        /// <summary>
-        /// Creează o instanță a serviciului responsabil cu procesarea fișierelor video și audio.
-        /// </summary>
-        public IProcesorVideoService CreateProcesorVideoService() => new ProcesorVideoService();
+    public IProcesorVideoService CreateProcesorVideoService()
+    {
+        return new ProcesorVideoService(_processRunner, _commandFactory);
+    }
 
-        /// <summary>
-        /// Creează o instanță a serviciului responsabil cu transcrierea audio în text.
-        /// </summary>
-        public ITranscriereService CreateTranscriereService() => new TranscriereService(_configuration);
+    public ITranscriereService CreateTranscriereService()
+    {
+        return new TranscriereService(_processRunner, _commandFactory);
     }
 }

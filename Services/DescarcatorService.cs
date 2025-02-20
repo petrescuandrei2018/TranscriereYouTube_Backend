@@ -1,23 +1,35 @@
-﻿using TranscriereYouTube.Utils;
-
-public class DescarcatorService : IDescarcatorService
+﻿public class DescarcatorService : IDescarcatorService
 {
-    public string Descarca(string videoUrl)
+    private readonly IProcessRunner _processRunner;
+    private readonly ICommandFactory _commandFactory;
+    private readonly IConfiguration _config; // ✅ Adăugăm variabila de configurare
+
+    public DescarcatorService(IProcessRunner processRunner, ICommandFactory commandFactory, IConfiguration config)
     {
-        var outputPath = $"videoclipuri/{Guid.NewGuid()}.mp4";
+        _processRunner = processRunner;
+        _commandFactory = commandFactory;
+        _config = config; // ✅ Injectăm configurația
+    }
 
-        // Argumentele pentru yt-dlp
-        var arguments = $"-f bestvideo+bestaudio -o \"{outputPath}\" \"{videoUrl}\"";
+    public DescarcatorService(IProcessRunner processRunner, ICommandFactory commandFactory)
+    {
+        _processRunner = processRunner;
+        _commandFactory = commandFactory;
+    }
 
-        // Folosește cheia "YT_DLPPath" din appsettings.json
-        var (success, output, error) = ProcessRunner.Execute("YT_DLPPath", arguments);
+    public async Task<Result<string>> DescarcaVideoAsync(string videoUrl)
+    {
+        var outputPath = $"{Guid.NewGuid()}.mp4";
+        var ytDlpPath = _config["TranscriereSettings:YT_DLPPath"];
+        var arguments = $"--no-post-overwrites -o \"{outputPath}\" \"{videoUrl}\"";
 
-        if (!success)
-        {
-            Console.WriteLine($"Eroare la descărcare: {error}");
-            throw new Exception("Descărcarea videoclipului a eșuat.");
-        }
+        Console.WriteLine($"Executabil: {ytDlpPath}");
+        Console.WriteLine($"Argumente: {arguments}");
 
-        return outputPath;
+        var rezultat = await _processRunner.RunCommandAsync(ytDlpPath, arguments);
+
+        return rezultat.Success
+            ? Result<string>.Ok(outputPath)
+            : Result<string>.Fail(rezultat.ErrorMessage);
     }
 }

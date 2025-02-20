@@ -1,4 +1,4 @@
 ﻿public interface IProcesorAudioService
 {
-    string ExtrageAudio(string videoPath);
+    Task<Result<string>> ExtrageAudioAsync(string videoPath);
 }
