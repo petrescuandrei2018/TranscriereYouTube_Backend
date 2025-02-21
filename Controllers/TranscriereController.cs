@@ -1,80 +1,54 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using System.Net.WebSockets;
-using System.Text;
 
 [ApiController]
 [Route("api/transcriere")]
 public class TranscriereController : ControllerBase
 {
-    private readonly ITranscriereFacade _transcriereFacade;
-    private readonly ITranscriereValidator _validator;
-    private readonly IWebSocketService _webSocketService;
+    private readonly IYtDlpService _ytDlpService;
+    private readonly IFFmpegService _ffmpegService;
+    private readonly IWhisperService _whisperService;
+    private readonly ILogger<TranscriereController> _logger;
 
-    public TranscriereController(
-        ITranscriereFacade transcriereFacade,
-        ITranscriereValidator validator,
-        IWebSocketService webSocketService)
+    public TranscriereController(IYtDlpService ytDlpService, IFFmpegService ffmpegService, IWhisperService whisperService, ILogger<TranscriereController> logger)
     {
-        _transcriereFacade = transcriereFacade;
-        _validator = validator;
-        _webSocketService = webSocketService;
+        _ytDlpService = ytDlpService;
+        _ffmpegService = ffmpegService;
+        _whisperService = whisperService;
+        _logger = logger;
     }
 
-    [HttpPost("full-transcriere")]
-    public async Task<IActionResult> FullTranscriere([FromBody] TranscriereRequest request)
+    [HttpPost("start")]
+    public async Task<IActionResult> StartTranscription([FromBody] TranscriereRequest request)
     {
-        Console.WriteLine("🚀 Începem transcrierea completă...");
+        _logger.LogInformation("🚀 Începem transcrierea pentru URL-ul: {VideoUrl}", request.VideoUrl);
 
-        // ✅ Apelăm metoda din Facade
-        var result = await _transcriereFacade.ExecuteFullTranscription(request.VideoPath, request.Language);
-
-        if (!result.Success)
+        // Descărcare Video
+        var downloadResult = await _ytDlpService.DownloadVideoAsync(request.VideoUrl, "video.mp4");
+        if (!downloadResult.Success)
         {
-            Console.WriteLine($"❌ Eroare: {result.ErrorMessage}");
-            return BadRequest(new { eroare = result.ErrorMessage });
+            _logger.LogError("❌ Eroare la descărcarea videoclipului: {Error}", downloadResult.ErrorMessage);
+            return BadRequest(downloadResult.ErrorMessage);
         }
+        _logger.LogInformation("✅ Videoclip descărcat cu succes.");
 
-        Console.WriteLine("✅ Transcriere completă!");
-        return Ok(new { transcriere = result.Data });
+        // Conversie Video
+        var convertResult = await _ffmpegService.ConvertVideoAsync("video.mp4", "converted.mp4");
+        if (!convertResult.Success)
+        {
+            _logger.LogError("❌ Eroare la conversia videoclipului: {Error}", convertResult.ErrorMessage);
+            return BadRequest(convertResult.ErrorMessage);
+        }
+        _logger.LogInformation("✅ Conversie video completă.");
+
+        // Transcriere Audio
+        var transcribeResult = await _whisperService.TranscribeAudioAsync("converted.mp4", request.Language);
+        if (!transcribeResult.Success)
+        {
+            _logger.LogError("❌ Eroare la transcrierea audio: {Error}", transcribeResult.ErrorMessage);
+            return BadRequest(transcribeResult.ErrorMessage);
+        }
+        _logger.LogInformation("✅ Transcriere completă.");
+
+        return Ok(new { Transcription = transcribeResult.Data });
     }
-
-
-    [HttpGet("progress")]
-    public async Task GetProgress([FromQuery] string audioPath, [FromQuery] string limba, CancellationToken cancellationToken)
-    {
-        var context = HttpContext;
-
-        if (context.WebSockets.IsWebSocketRequest)
-        {
-            using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-            try
-            {
-                await _webSocketService.TrimiteMesajAsync(webSocket, "🚀 Începem transcrierea...", cancellationToken);
-                var result = await _transcriereFacade.ExecuteFullTranscription(audioPath, limba);
-
-                if (!result.Success)
-                {
-                    await _webSocketService.TrimiteMesajAsync(webSocket, $"❌ Eroare: {result.ErrorMessage}", cancellationToken);
-                }
-                else
-                {
-                    await _webSocketService.TrimiteMesajAsync(webSocket, "✅ Transcriere finalizată cu succes.", cancellationToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                await _webSocketService.TrimiteMesajAsync(webSocket, $"❗ Eroare neprevăzută: {ex.Message}", cancellationToken);
-            }
-            finally
-            {
-                await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Conexiune închisă", cancellationToken);
-            }
-        }
-        else
-        {
-            context.Response.StatusCode = 400;
-            await context.Response.WriteAsync("⚠️ Cererea nu este un WebSocket valid.");
-        }
-    }
-
 }

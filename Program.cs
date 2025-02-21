@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using TranscriereYouTube_Backend.Interfaces;
+using TranscriereYouTube_Backend.Utils;
 
 namespace TranscriereYouTube
 {
@@ -30,6 +31,12 @@ namespace TranscriereYouTube
             builder.Services.AddSingleton<ILoggerService, LoggerService>();
             builder.Services.AddSingleton<ITranscriereValidator, TranscriereValidator>();
             builder.Services.AddSingleton<IWebSocketService, WebSocketService>();
+            builder.Services.AddSingleton<TestProcesExtern>();
+            builder.Services.AddSingleton<IVideoDownloader, VideoDownloader>();
+            builder.Services.AddScoped<IYtDlpService, YtDlpService>();
+            builder.Services.AddScoped<IFFmpegService, FFmpegService>();
+            builder.Services.AddScoped<IWhisperService, WhisperService>();
+
 
             // Configurare controlere și Swagger
             builder.Services.AddControllers();

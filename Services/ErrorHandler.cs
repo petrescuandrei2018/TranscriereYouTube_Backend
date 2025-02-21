@@ -4,7 +4,6 @@ public class ErrorHandler : IErrorHandler
 {
     public void HandleError(string errorMessage)
     {
-        Console.WriteLine($"[ERROR HANDLER]: {errorMessage}");
-        // Aici poți adăuga mai multă logică (ex: logare în fișier, raportare erori, etc.)
+        Console.WriteLine($"❌ Eroare: {errorMessage}");
     }
 }

@@ -4,7 +4,7 @@
 
     public Result<bool> ValideazaRequest(TranscriereRequest request)
     {
-        if (string.IsNullOrEmpty(request.VideoPath))
+        if (string.IsNullOrEmpty(request.VideoUrl))
             return Result<bool>.Fail("⚠️ URL-ul videoclipului este necesar.");
 
         if (!_limbiSuportate.Contains(request.Language.ToLower()))
