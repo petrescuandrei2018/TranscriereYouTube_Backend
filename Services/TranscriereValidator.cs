@@ -1,6 +1,6 @@
 ﻿public class TranscriereValidator : ITranscriereValidator
 {
-    private readonly HashSet<string> _limbiSuportate = new() { "ro", "en" };
+    private readonly HashSet<string> _limbiSuportate = new() { "ro", "en", "fr" };
 
     public Result<bool> ValideazaRequest(TranscriereRequest request)
     {
