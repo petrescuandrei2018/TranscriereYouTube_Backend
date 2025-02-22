@@ -9,9 +9,9 @@
         _commandFactory = commandFactory;
     }
 
-    public async Task<Result<string>> TranscrieAudioAsync(string audioPath, string limba)
+    public async Task<Result<string>> TranscrieAudioAsync(string audioPath, string language)
     {
-        var command = _commandFactory.CreateWhisperCommand(audioPath, limba);
+        var command = _commandFactory.CreateWhisperCommand(audioPath, language);
         return await _processRunner.RunCommandAsync("cmd.exe", $"/C {command}");
     }
 }

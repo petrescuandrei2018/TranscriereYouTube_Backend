@@ -33,16 +33,13 @@
         if (string.IsNullOrEmpty(ffmpegPath))
             throw new Exception("⚠️ Calea către ffmpeg nu este configurată corect în appsettings.json.");
 
-        // ✅ Obținem căile complete pentru fișiere
-        var videoFullPath = Path.GetFullPath(videoPath);
-        var audioFullPath = Path.GetFullPath(audioOutputPath);
+        var videoFullPath = Path.GetFullPath(videoPath).Replace("\"", "\\\"");
+        var audioFullPath = Path.GetFullPath(audioOutputPath).Replace("\"", "\\\"");
 
-        // ✅ Afișăm log-uri pentru debugging
-        Console.WriteLine($"📂 Cale video: {videoFullPath}");
-        Console.WriteLine($"🎵 Cale audio: {audioFullPath}");
+        Console.WriteLine($"📂 Cale video: \"{videoFullPath}\"");
+        Console.WriteLine($"🎵 Cale audio: \"{audioFullPath}\"");
         Console.WriteLine($"⚡ Executăm comanda: \"{ffmpegPath}\" -i \"{videoFullPath}\" -q:a 0 -map a \"{audioFullPath}\"");
 
-        // ✅ Generăm comanda FFmpeg
         return $"\"{ffmpegPath}\" -i \"{videoFullPath}\" -q:a 0 -map a \"{audioFullPath}\"";
     }
 

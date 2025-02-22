@@ -35,22 +35,14 @@ public class VideoDownloader : IVideoDownloader
     {
         Console.WriteLine($"🚀 Descărcare video din URL: {youtubeUrl}");
 
-        string videoId = ExtractVideoId(youtubeUrl);
-        if (string.IsNullOrEmpty(videoId))
-        {
-            Console.WriteLine("❌ URL invalid. Nu s-a putut extrage Video ID.");
-            return Result<string>.Fail("❌ URL invalid. Nu s-a putut extrage Video ID.");
-        }
-
-        string fileName = GetSafeFilename($"{videoId}.mp4");
-        string outputPath = Path.Combine(Directory.GetCurrentDirectory(), fileName);
-
+        string outputPath = Path.Combine("C:\\Temp", "downloaded_video.mp4");
         string ytDlpPath = @"C:\Python313\Scripts\yt-dlp.exe";
         string arguments = $"-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4\" --merge-output-format mp4 -o \"{outputPath}\" \"{youtubeUrl}\"";
 
-        Console.WriteLine($"📁 Executăm comanda yt-dlp:\n{ytDlpPath} {arguments}");
+        // ✅ Logare comandă yt-dlp
+        Console.WriteLine($"🔧 Comandă yt-dlp: {ytDlpPath} {arguments}");
 
-        var rezultat = await _processRunner.RunCommandAsync(ytDlpPath, arguments);
+        var rezultat = await _processRunner.RunCommandAsync(ytDlpPath, arguments, "Descărcare video");
 
         if (!rezultat.Success)
         {
@@ -69,7 +61,7 @@ public class VideoDownloader : IVideoDownloader
     }
 
     // ✅ Extragem doar audio-ul din videoclip
-    public async Task<Result<string>> ExtractAudioAsync(string videoPath)
+    public async Task<Result<string>> ExtractAudioAsync(string videoPath, string audioOutputPath)
     {
         if (!File.Exists(videoPath))
         {
@@ -84,21 +76,22 @@ public class VideoDownloader : IVideoDownloader
 
         string convertedVideoPath = conversionResult.Data;
 
-        // ✅ Extragere Audio
+        // ✅ Extragere Audio folosind ffmpeg
         string ffmpegPath = @"C:\FFmpeg\bin\ffmpeg.exe";
-        string audioOutput = Path.ChangeExtension(convertedVideoPath, ".mp3");
-        string arguments = $"-y -i \"{convertedVideoPath}\" -vn -q:a 0 -map a \"{audioOutput}\"";
+        string arguments = $"-y -i \"{convertedVideoPath}\" -vn -q:a 0 -map a \"{audioOutputPath}\"";
 
         Console.WriteLine($"🎵 Începem extragerea audio...");
         var audioResult = await _processRunner.RunCommandAsync(ffmpegPath, arguments, "Extragere audio din video");
 
-        if (!audioResult.Success)
+        // ✅ Validare după rularea comenzii
+        if (!audioResult.Success || !File.Exists(audioOutputPath))
         {
-            Console.WriteLine($"❌ Eroare la extragerea audio: {audioResult.ErrorMessage}");
-            return Result<string>.Fail(audioResult.ErrorMessage);
+            var errorMessage = audioResult.Success ? "⚠️ Fișierul audio nu a fost creat." : audioResult.ErrorMessage;
+            Console.WriteLine($"❌ Eroare la extragerea audio: {errorMessage}");
+            return Result<string>.Fail(errorMessage);
         }
 
-        Console.WriteLine($"✅ Audio extras cu succes: {audioOutput}");
-        return Result<string>.Ok(audioOutput);
+        Console.WriteLine($"✅ Audio extras cu succes: {audioOutputPath}");
+        return Result<string>.Ok(audioOutputPath);
     }
 }

@@ -1,5 +1,8 @@
-﻿public class TranscriereRequest
+﻿namespace TranscriereYouTube_Backend.Models
 {
-    public string VideoUrl { get; set; }  
-    public string Language { get; set; }
+    public class TranscriereRequest
+    {
+        public string UrlOrPath { get; set; }  // URL YouTube sau cale locală
+        public string Language { get; set; }   // Limbă pentru transcriere
+    }
 }
