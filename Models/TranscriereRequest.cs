@@ -1,8 +1,11 @@
-﻿namespace TranscriereYouTube_Backend.Models
+﻿using System.Text.Json.Serialization;
+
+namespace TranscriereYouTube_Backend.Models
 {
     public class TranscriereRequest
     {
-        public string UrlOrPath { get; set; }  // URL YouTube sau cale locală
-        public string Language { get; set; }   // Limbă pentru transcriere
+        public string UrlOrPath { get; set; }
+        public string Language { get; set; } // Noua proprietate pentru limbă
     }
+
 }

@@ -82,15 +82,17 @@ public class TestProcesExternController : ControllerBase
             return BadRequest("❌ Calea către fișierul video nu este validă sau nu există.");
         }
 
-        // ✅ Începem extragerea audio folosind ffmpeg
+        // ✅ Începem extragerea audio folosind ffmpeg cu filtre pentru reducerea zgomotului și normalizare
         var audioOutputPath = Path.ChangeExtension(localVideoPath, ".mp3");
         string ffmpegPath = @"C:\FFmpeg\bin\ffmpeg.exe";
-        string arguments = $"-y -i \"{localVideoPath}\" -vn -q:a 0 -map a \"{audioOutputPath}\"";
+
+        // ✅ Adăugăm filtrele afftdn și dynaudnorm pentru îmbunătățirea calității audio
+        string arguments = $"-y -i \"{localVideoPath}\" -af \"afftdn, dynaudnorm\" -vn -q:a 0 -map a \"{audioOutputPath}\"";
 
         // ✅ Logare detaliată a comenzii
         Console.WriteLine($"🔧 Executăm comanda ffmpeg:\n{ffmpegPath} {arguments}");
 
-        var result = await _processRunner.RunCommandAsync(ffmpegPath, arguments, "Extragere audio");
+        var result = await _processRunner.RunCommandAsync(ffmpegPath, arguments, "Extragere audio cu îmbunătățiri");
 
         if (!result.Success)
         {
@@ -104,8 +106,8 @@ public class TestProcesExternController : ControllerBase
             return BadRequest("⚠️ Fișierul audio nu a fost creat.");
         }
 
-        Console.WriteLine($"✅ Audio extras cu succes: {audioOutputPath}");
-        return Ok($"✅ Audio extras cu succes: {audioOutputPath}");
+        Console.WriteLine($"✅ Audio extras și procesat cu succes: {audioOutputPath}");
+        return Ok($"✅ Audio extras și procesat cu succes: {audioOutputPath}");
     }
 
 }

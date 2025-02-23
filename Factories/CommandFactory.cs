@@ -26,7 +26,7 @@
         return command;
     }
 
-    // ✅ Comandă corectă pentru ffmpeg
+    // ✅ Comandă corectă pentru ffmpeg cu filtre audio pentru reducerea zgomotului și normalizare
     public string CreateFfmpegCommand(string videoPath, string audioOutputPath)
     {
         var ffmpegPath = _config["TranscriereSettings:FFmpegPath"];
@@ -38,18 +38,31 @@
 
         Console.WriteLine($"📂 Cale video: \"{videoFullPath}\"");
         Console.WriteLine($"🎵 Cale audio: \"{audioFullPath}\"");
-        Console.WriteLine($"⚡ Executăm comanda: \"{ffmpegPath}\" -i \"{videoFullPath}\" -q:a 0 -map a \"{audioFullPath}\"");
 
-        return $"\"{ffmpegPath}\" -i \"{videoFullPath}\" -q:a 0 -map a \"{audioFullPath}\"";
+        // ✅ Adăugăm filtrele afftdn și dynaudnorm
+        string arguments = $"-i \"{videoFullPath}\" -af \"afftdn, dynaudnorm\" -q:a 0 -map a \"{audioFullPath}\"";
+
+        Console.WriteLine($"⚡ Executăm comanda: \"{ffmpegPath}\" {arguments}");
+
+        return $"\"{ffmpegPath}\" {arguments}";
     }
 
     // ✅ Comandă corectă pentru Whisper
-    public string CreateWhisperCommand(string audioPath, string language)
+    public string CreateWhisperCommand(string audioPath, string language = null)
     {
         var whisperPath = _config["TranscriereSettings:WhisperPath"];
         if (string.IsNullOrEmpty(whisperPath))
             throw new Exception("⚠️ Calea către Whisper nu este configurată corect în appsettings.json.");
 
-        return $"\"{whisperPath}\" \"{audioPath}\" --language {language}";
+        // Construim comanda fără parametrul --language pentru a permite detecția automată
+        string command = $"\"{whisperPath}\" \"{audioPath}\" --task transcribe";
+
+        // Dacă limba este specificată manual, o adăugăm în comandă
+        if (!string.IsNullOrEmpty(language))
+        {
+            command += $" --language {language}";
+        }
+
+        return command;
     }
 }

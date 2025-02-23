@@ -6,6 +6,9 @@ using TranscriereYouTube_Backend.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Google.Cloud.Speech.V1;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 
 [ApiController]
 [Route("api/transcriere")]
@@ -18,6 +21,7 @@ public class TranscriereController : ControllerBase
     {
         _videoDownloader = videoDownloader;
         _processRunner = processRunner;
+        Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", @"C:\\Users\\And\\Downloads\\hardy-aleph-449214-q8-f68a4c5fc542.json");
     }
 
     [HttpPost("simulare")]
@@ -28,14 +32,17 @@ public class TranscriereController : ControllerBase
             return BadRequest("❌ URL-ul sau calea fișierului este obligatorie.");
         }
 
-        // ✅ Modelele Whisper pe care le vom testa (fără "base")
-        var whisperModels = new List<string> { "tiny", "small", "medium", "large" };
+        var whisperModels = new List<string> { "tiny", "large" };
         var rezultateSimulare = new List<SimulareRezultat>();
 
         Console.WriteLine($"🚀 Începem simularea transcrierii pentru: {request.UrlOrPath}");
 
-        // ✅ Descărcăm clipul audio dacă e URL
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string videoFileName = $"downloaded_video_{timestamp}.mp4";
+        string audioOutputPath = Path.Combine("C:\\Temp", videoFileName);
+
         string audioPath = request.UrlOrPath;
+
         if (request.UrlOrPath.StartsWith("http://") || request.UrlOrPath.StartsWith("https://"))
         {
             Console.WriteLine("🔄 Descărcăm audio-ul de pe YouTube...");
@@ -51,12 +58,20 @@ public class TranscriereController : ControllerBase
             Console.WriteLine($"✅ Audio descărcat la: {audioPath}");
         }
 
-        // ✅ Creăm un folder unic pentru această sesiune
-        string baseOutputDir = Path.Combine(Path.GetDirectoryName(audioPath), "transcrieri", Path.GetFileNameWithoutExtension(audioPath) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+        string preprocessedAudioPath = Path.ChangeExtension(audioPath, ".processed.wav");
+        string ffmpegPreprocessCommand = $"ffmpeg -i \"{audioPath}\" -af \"afftdn=nf=-25, dynaudnorm, highpass=f=200, lowpass=f=3000\" -ar 16000 -ac 1 \"{preprocessedAudioPath}\"";
+        await _processRunner.RunCommandAsync("cmd.exe", $"/C {ffmpegPreprocessCommand}", "Preprocesare audio");
+        Console.WriteLine($"✅ Audio preprocesat la: {preprocessedAudioPath}");
+
+        string slicedAudioPath = Path.ChangeExtension(audioPath, ".sliced.wav");
+        string ffmpegSliceCommand = $"ffmpeg -i \"{preprocessedAudioPath}\" -ss 00:00:15 -t 00:00:45 -c copy \"{slicedAudioPath}\"";
+        await _processRunner.RunCommandAsync("cmd.exe", $"/C {ffmpegSliceCommand}", "Tăiere audio pentru detecție limbă");
+        Console.WriteLine($"✅ Audio tăiat pentru detecția limbii: {slicedAudioPath}");
+
+        string baseOutputDir = Path.Combine(Path.GetDirectoryName(audioPath), "transcrieri", Path.GetFileNameWithoutExtension(audioPath) + "_" + timestamp);
         Directory.CreateDirectory(baseOutputDir);
         Console.WriteLine($"📁 Director de ieșire creat: {baseOutputDir}");
 
-        // ✅ Transcriem cu fiecare model
         foreach (var model in whisperModels)
         {
             Console.WriteLine($"🎙️ Testăm modelul Whisper: {model}");
@@ -65,8 +80,13 @@ public class TranscriereController : ControllerBase
             string modelOutputDir = Path.Combine(baseOutputDir, model);
             Directory.CreateDirectory(modelOutputDir);
 
-            // ✅ Forțăm utilizarea CPU-ului
-            string whisperCommand = $"python -m whisper \"{audioPath}\" --language {request.Language} --output_dir \"{modelOutputDir}\" --model {model} --output_format txt --fp16 False --device cpu";
+            string whisperCommand = $"python -m whisper \"{slicedAudioPath}\" --task transcribe --output_dir \"{modelOutputDir}\" --model {model} --output_format txt --fp16 False --device cpu --temperature 0 --best_of 5";
+
+            if (!string.IsNullOrEmpty(request.Language))
+            {
+                whisperCommand += $" --language {request.Language}";
+                Console.WriteLine($"🌐 Folosim limba specificată: {request.Language}");
+            }
 
             Console.WriteLine($"🔧 Comandă Whisper:\n{whisperCommand}");
 
@@ -78,45 +98,24 @@ public class TranscriereController : ControllerBase
                 CreateNoWindow = true
             };
 
-            // ✅ Setăm variabila de mediu pentru Python pentru a folosi UTF-8
             processStartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
-
 
             using (var process = new Process { StartInfo = processStartInfo })
             {
-                process.OutputDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        Console.WriteLine($"📝 {e.Data}");
-                    }
-                };
-
-                process.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        Console.WriteLine($"⚠️ [Eroare] {e.Data}");
-                    }
-                };
-
                 process.Start();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // ✅ Loguri periodice pentru progres
                 while (!process.HasExited)
                 {
-                    await Task.Delay(5000);  // Log la fiecare 5 secunde
+                    await Task.Delay(5000);
                     Console.WriteLine($"⏳ Model '{model}' rulează încă... {stopwatch.Elapsed.TotalSeconds:F2}s");
                 }
 
                 await process.WaitForExitAsync();
+                stopwatch.Stop();
             }
 
-            stopwatch.Stop();
-
-            // ✅ Verificăm dacă transcrierea a fost creată
             string transcriptionFile = Directory.GetFiles(modelOutputDir, "*.txt").FirstOrDefault();
             if (string.IsNullOrEmpty(transcriptionFile))
             {
@@ -125,12 +124,7 @@ public class TranscriereController : ControllerBase
             }
 
             string transcribedText = await System.IO.File.ReadAllTextAsync(transcriptionFile);
-
-            // ✅ Simulăm un text de referință pentru calculul WER
-            string referenceText = "This is the reference transcription text for accuracy comparison.";
-
-            // ✅ Calculăm acuratețea (Word Error Rate)
-            double wer = CalculateWER(referenceText, transcribedText);
+            double wer = CalculateWER("This is the reference transcription text for accuracy comparison.", transcribedText);
 
             rezultateSimulare.Add(new SimulareRezultat
             {
@@ -146,7 +140,144 @@ public class TranscriereController : ControllerBase
         return Ok(rezultateSimulare);
     }
 
-    // ✅ Metodă pentru calculul Word Error Rate (WER)
+    [HttpPost("google")]
+    public async Task<IActionResult> GoogleTranscriere([FromBody] TranscriereRequest request)
+    {
+        if (string.IsNullOrEmpty(request.UrlOrPath) || string.IsNullOrEmpty(request.Language))
+        {
+            Console.WriteLine("⚠️ Parametri lipsă: URL-ul și limba sunt obligatorii.");
+            return BadRequest("❌ URL-ul și limba sunt obligatorii.");
+        }
+
+        Console.WriteLine($"🚀 Începem transcrierea cu Google pentru: {request.UrlOrPath}");
+
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string videoFileName = $"downloaded_video_{timestamp}.mp4";
+        string audioFileName = $"downloaded_audio_{timestamp}.flac";
+
+        string videoOutputPath = Path.Combine("C:\\Temp", videoFileName);
+        string audioOutputPath = Path.Combine("C:\\Temp", audioFileName);
+        string transcriptOutputPath = Path.Combine("C:\\Temp", $"transcript_{timestamp}.docx");
+
+        try
+        {
+            // Descărcare video
+            Console.WriteLine($"🔄 Descărcăm video din URL: {request.UrlOrPath}");
+            var ytDlpCommand = $"C:\\Python313\\Scripts\\yt-dlp.exe -f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4\" --merge-output-format mp4 -o \"{videoOutputPath}\" \"{request.UrlOrPath}\"";
+            await _processRunner.RunCommandAsync("cmd.exe", $"/C {ytDlpCommand}", "Descărcare video");
+
+            if (!System.IO.File.Exists(videoOutputPath))
+            {
+                Console.WriteLine($"❌ Eroare la descărcarea fișierului video.");
+                return BadRequest("Nu s-a putut descărca fișierul video.");
+            }
+
+            Console.WriteLine($"✅ Fișier video salvat direct la: {videoOutputPath}");
+
+            // Extragem audio și convertim în FLAC
+            string ffmpegCommand = $"ffmpeg -i \"{videoOutputPath}\" -vn -ac 1 -acodec flac \"{audioOutputPath}\"";
+            await _processRunner.RunCommandAsync("cmd.exe", $"/C {ffmpegCommand}", "Conversie audio");
+
+            if (!System.IO.File.Exists(audioOutputPath))
+            {
+                Console.WriteLine($"❌ Eroare la extragerea audio-ului.");
+                return BadRequest("Nu s-a putut extrage audio-ul din video.");
+            }
+
+            Console.WriteLine($"✅ Audio extras și convertit: {audioOutputPath}");
+
+            // Configurare Google Speech-to-Text
+            Console.WriteLine("⚙️ Configurăm Google Speech-to-Text...");
+            var speech = SpeechClient.Create();
+            var longOperation = await speech.LongRunningRecognizeAsync(new RecognitionConfig
+            {
+                Encoding = RecognitionConfig.Types.AudioEncoding.Flac,
+                LanguageCode = request.Language,
+                SampleRateHertz = 44100,
+                EnableAutomaticPunctuation = true
+            }, RecognitionAudio.FromFile(audioOutputPath));
+
+            Console.WriteLine("⏳ Procesăm transcrierea cu Google Speech-to-Text...");
+
+            // Polling manual pentru progres
+            var startTime = DateTime.Now;
+            int lastProgress = -1;
+            while (!longOperation.IsCompleted)
+            {
+                // Simulăm progresul
+                var elapsed = DateTime.Now - startTime;
+                int progress = Math.Min(100, (int)(elapsed.TotalSeconds * 2)); // Ajustează viteza progresului aici
+
+                if (progress != lastProgress)
+                {
+                    DrawProgressBar(progress, 100);
+                    lastProgress = progress;
+                }
+
+                await Task.Delay(1000); // Așteptăm un timp înainte de a verifica din nou
+            }
+
+            DrawProgressBar(100, 100);
+            Console.WriteLine("\n✅ Transcriere completă!");
+
+            // Verificăm dacă operația s-a finalizat cu succes
+            if (!longOperation.IsCompleted || longOperation.Exception != null)
+            {
+                Console.WriteLine($"❌ Eroare în transcrierea audio cu Google Speech-to-Text.");
+                if (longOperation.Exception != null)
+                {
+                    Console.WriteLine($"Detalii eroare: {longOperation.Exception.Message}");
+                    return BadRequest($"❌ Eroare detaliată: {longOperation.Exception.Message}");
+                }
+                return BadRequest("❌ Eroare în transcrierea audio cu Google Speech-to-Text.");
+            }
+
+            var response = longOperation.Result;
+
+            // Creăm documentul .docx
+            Console.WriteLine("📄 Creăm documentul .docx...");
+            using (WordprocessingDocument doc = WordprocessingDocument.Create(transcriptOutputPath, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
+            {
+                MainDocumentPart mainPart = doc.AddMainDocumentPart();
+                mainPart.Document = new Document();
+                Body body = new Body();
+
+                foreach (var result in response.Results)
+                {
+                    foreach (var alternative in result.Alternatives)
+                    {
+                        var para = new Paragraph(new Run(new Text(alternative.Transcript)));
+                        body.Append(para);
+                        Console.WriteLine($"💬 Transcriere: {alternative.Transcript}");
+                    }
+                }
+
+                mainPart.Document.Append(body);
+                mainPart.Document.Save();
+            }
+
+            Console.WriteLine($"✅ Transcriere salvată în: {transcriptOutputPath}");
+
+            // Returnăm fișierul .docx
+            var fileBytes = await System.IO.File.ReadAllBytesAsync(transcriptOutputPath);
+            return File(fileBytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Path.GetFileName(transcriptOutputPath));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Eroare neașteptată: {ex.Message}");
+            return StatusCode(500, $"❌ Eroare internă: {ex.Message}");
+        }
+    }
+
+    static void DrawProgressBar(int progress, int total, int barSize = 50)
+    {
+        double percent = (double)progress / total;
+        int filledBars = (int)(percent * barSize);
+        string progressBar = $"[{new string('#', filledBars)}{new string('-', barSize - filledBars)}] {percent:P0}";
+        Console.SetCursorPosition(0, Console.CursorTop);
+        Console.Write(progressBar);
+    }
+
     private double CalculateWER(string reference, string hypothesis)
     {
         var refWords = reference.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -163,14 +294,14 @@ public class TranscriereController : ControllerBase
             {
                 int cost = refWords[i - 1].Equals(hypWords[j - 1], StringComparison.OrdinalIgnoreCase) ? 0 : 1;
                 distance[i, j] = new[] {
-                    distance[i - 1, j] + 1,       // ștergere
-                    distance[i, j - 1] + 1,       // inserție
-                    distance[i - 1, j - 1] + cost // substituție
+                    distance[i - 1, j] + 1,
+                    distance[i, j - 1] + 1,
+                    distance[i - 1, j - 1] + cost
                 }.Min();
             }
         }
 
         double wer = (double)distance[refWords.Length, hypWords.Length] / refWords.Length;
-        return Math.Max(0, Math.Min(wer, 1));  // ✅ Ne asigurăm că WER este între 0 și 1
+        return Math.Max(0, Math.Min(wer, 1));
     }
 }
