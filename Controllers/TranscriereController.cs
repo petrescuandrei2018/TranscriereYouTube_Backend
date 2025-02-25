@@ -7,8 +7,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Google.Cloud.Speech.V1;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
+using CliWrap;
+using Serilog;
+using CliWrap.Buffered;
 
 [ApiController]
 [Route("api/transcriere")]
@@ -21,123 +22,13 @@ public class TranscriereController : ControllerBase
     {
         _videoDownloader = videoDownloader;
         _processRunner = processRunner;
+
+        // Configurare Serilog pentru logging structurat
+        Log.Logger = new LoggerConfiguration()
+            .WriteTo.Console()
+            .CreateLogger();
+
         Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", @"C:\\Users\\And\\Downloads\\hardy-aleph-449214-q8-f68a4c5fc542.json");
-    }
-
-    [HttpPost("simulare")]
-    public async Task<IActionResult> SimulareTranscriere([FromBody] TranscriereRequest request)
-    {
-        if (string.IsNullOrEmpty(request.UrlOrPath))
-        {
-            return BadRequest("❌ URL-ul sau calea fișierului este obligatorie.");
-        }
-
-        var whisperModels = new List<string> { "tiny", "large" };
-        var rezultateSimulare = new List<SimulareRezultat>();
-
-        Console.WriteLine($"🚀 Începem simularea transcrierii pentru: {request.UrlOrPath}");
-
-        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        string videoFileName = $"downloaded_video_{timestamp}.mp4";
-        string audioOutputPath = Path.Combine("C:\\Temp", videoFileName);
-
-        string audioPath = request.UrlOrPath;
-
-        if (request.UrlOrPath.StartsWith("http://") || request.UrlOrPath.StartsWith("https://"))
-        {
-            Console.WriteLine("🔄 Descărcăm audio-ul de pe YouTube...");
-            var downloadResult = await _videoDownloader.DownloadVideoAsync(request.UrlOrPath);
-
-            if (!downloadResult.Success)
-            {
-                Console.WriteLine($"❌ Eroare la descărcare: {downloadResult.ErrorMessage}");
-                return BadRequest(downloadResult.ErrorMessage);
-            }
-
-            audioPath = downloadResult.Data;
-            Console.WriteLine($"✅ Audio descărcat la: {audioPath}");
-        }
-
-        string preprocessedAudioPath = Path.ChangeExtension(audioPath, ".processed.wav");
-        string ffmpegPreprocessCommand = $"ffmpeg -i \"{audioPath}\" -af \"afftdn=nf=-25, dynaudnorm, highpass=f=200, lowpass=f=3000\" -ar 16000 -ac 1 \"{preprocessedAudioPath}\"";
-        await _processRunner.RunCommandAsync("cmd.exe", $"/C {ffmpegPreprocessCommand}", "Preprocesare audio");
-        Console.WriteLine($"✅ Audio preprocesat la: {preprocessedAudioPath}");
-
-        string slicedAudioPath = Path.ChangeExtension(audioPath, ".sliced.wav");
-        string ffmpegSliceCommand = $"ffmpeg -i \"{preprocessedAudioPath}\" -ss 00:00:15 -t 00:00:45 -c copy \"{slicedAudioPath}\"";
-        await _processRunner.RunCommandAsync("cmd.exe", $"/C {ffmpegSliceCommand}", "Tăiere audio pentru detecție limbă");
-        Console.WriteLine($"✅ Audio tăiat pentru detecția limbii: {slicedAudioPath}");
-
-        string baseOutputDir = Path.Combine(Path.GetDirectoryName(audioPath), "transcrieri", Path.GetFileNameWithoutExtension(audioPath) + "_" + timestamp);
-        Directory.CreateDirectory(baseOutputDir);
-        Console.WriteLine($"📁 Director de ieșire creat: {baseOutputDir}");
-
-        foreach (var model in whisperModels)
-        {
-            Console.WriteLine($"🎙️ Testăm modelul Whisper: {model}");
-
-            var stopwatch = Stopwatch.StartNew();
-            string modelOutputDir = Path.Combine(baseOutputDir, model);
-            Directory.CreateDirectory(modelOutputDir);
-
-            string whisperCommand = $"python -m whisper \"{slicedAudioPath}\" --task transcribe --output_dir \"{modelOutputDir}\" --model {model} --output_format txt --fp16 False --device cpu --temperature 0 --best_of 5";
-
-            if (!string.IsNullOrEmpty(request.Language))
-            {
-                whisperCommand += $" --language {request.Language}";
-                Console.WriteLine($"🌐 Folosim limba specificată: {request.Language}");
-            }
-
-            Console.WriteLine($"🔧 Comandă Whisper:\n{whisperCommand}");
-
-            var processStartInfo = new ProcessStartInfo("cmd.exe", $"/C chcp 65001 && {whisperCommand}")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            processStartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
-
-            using (var process = new Process { StartInfo = processStartInfo })
-            {
-                process.Start();
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-
-                while (!process.HasExited)
-                {
-                    await Task.Delay(5000);
-                    Console.WriteLine($"⏳ Model '{model}' rulează încă... {stopwatch.Elapsed.TotalSeconds:F2}s");
-                }
-
-                await process.WaitForExitAsync();
-                stopwatch.Stop();
-            }
-
-            string transcriptionFile = Directory.GetFiles(modelOutputDir, "*.txt").FirstOrDefault();
-            if (string.IsNullOrEmpty(transcriptionFile))
-            {
-                Console.WriteLine($"⚠️ Fișierul de transcriere lipsește pentru modelul {model}");
-                continue;
-            }
-
-            string transcribedText = await System.IO.File.ReadAllTextAsync(transcriptionFile);
-            double wer = CalculateWER("This is the reference transcription text for accuracy comparison.", transcribedText);
-
-            rezultateSimulare.Add(new SimulareRezultat
-            {
-                Model = model,
-                TimpExecutie = stopwatch.Elapsed.TotalSeconds,
-                Acuratete = (1 - wer) * 100,
-                Transcriere = transcribedText
-            });
-
-            Console.WriteLine($"✅ Model: {model} | Timp: {stopwatch.Elapsed.TotalSeconds:F2}s | Acuratețe: {(1 - wer) * 100:F2}%");
-        }
-
-        return Ok(rezultateSimulare);
     }
 
     [HttpPost("google")]
@@ -145,163 +36,219 @@ public class TranscriereController : ControllerBase
     {
         if (string.IsNullOrEmpty(request.UrlOrPath) || string.IsNullOrEmpty(request.Language))
         {
-            Console.WriteLine("⚠️ Parametri lipsă: URL-ul și limba sunt obligatorii.");
+            Log.Warning("⚠️ Parametri lipsă: URL-ul și limba sunt obligatorii.");
             return BadRequest("❌ URL-ul și limba sunt obligatorii.");
         }
 
-        Console.WriteLine($"🚀 Începem transcrierea cu Google pentru: {request.UrlOrPath}");
+        Log.Information("🚀 Începem transcrierea cu Google pentru: {Url}", request.UrlOrPath);
 
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         string videoFileName = $"downloaded_video_{timestamp}.mp4";
-        string audioFileName = $"downloaded_audio_{timestamp}.flac";
+        string audioFileName = $"downloaded_audio_{timestamp}.wav";
 
         string videoOutputPath = Path.Combine("C:\\Temp", videoFileName);
         string audioOutputPath = Path.Combine("C:\\Temp", audioFileName);
-        string transcriptOutputPath = Path.Combine("C:\\Temp", $"transcript_{timestamp}.docx");
+        string transcriptOutputPath = Path.Combine("C:\\Temp", $"transcript_{timestamp}.txt");
 
         try
         {
-            // Descărcare video
-            Console.WriteLine($"🔄 Descărcăm video din URL: {request.UrlOrPath}");
-            var ytDlpCommand = $"C:\\Python313\\Scripts\\yt-dlp.exe -f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4\" --merge-output-format mp4 -o \"{videoOutputPath}\" \"{request.UrlOrPath}\"";
-            await _processRunner.RunCommandAsync("cmd.exe", $"/C {ytDlpCommand}", "Descărcare video");
+            // Descărcăm video folosind yt-dlp (asincron cu CliWrap)
+            await DownloadVideoAsync(request.UrlOrPath, videoOutputPath);
 
             if (!System.IO.File.Exists(videoOutputPath))
             {
-                Console.WriteLine($"❌ Eroare la descărcarea fișierului video.");
+                Log.Error("❌ Eroare la descărcarea fișierului video.");
                 return BadRequest("Nu s-a putut descărca fișierul video.");
             }
 
-            Console.WriteLine($"✅ Fișier video salvat direct la: {videoOutputPath}");
-
-            // Extragem audio și convertim în FLAC
-            string ffmpegCommand = $"ffmpeg -i \"{videoOutputPath}\" -vn -ac 1 -acodec flac \"{audioOutputPath}\"";
-            await _processRunner.RunCommandAsync("cmd.exe", $"/C {ffmpegCommand}", "Conversie audio");
+            // Extragem audio și normalizăm volumul
+            await ConvertAndNormalizeAudioAsync(videoOutputPath, audioOutputPath);
 
             if (!System.IO.File.Exists(audioOutputPath))
             {
-                Console.WriteLine($"❌ Eroare la extragerea audio-ului.");
+                Log.Error("❌ Eroare la extragerea audio-ului.");
                 return BadRequest("Nu s-a putut extrage audio-ul din video.");
             }
 
-            Console.WriteLine($"✅ Audio extras și convertit: {audioOutputPath}");
+            Log.Information("✅ Audio extras și convertit: {AudioPath}", audioOutputPath);
 
-            // Configurare Google Speech-to-Text
-            Console.WriteLine("⚙️ Configurăm Google Speech-to-Text...");
-            var speech = SpeechClient.Create();
-            var longOperation = await speech.LongRunningRecognizeAsync(new RecognitionConfig
+            // Verificăm durata și dimensiunea audio-ului pentru fragmentare inteligentă
+            var audioInfo = await GetAudioInfoAsync(audioOutputPath);
+            List<string> fragments;
+
+            if (audioInfo.Duration.TotalMinutes > 1 || audioInfo.FileSize > 10 * 1024 * 1024)
             {
-                Encoding = RecognitionConfig.Types.AudioEncoding.Flac,
-                LanguageCode = request.Language,
-                SampleRateHertz = 44100,
-                EnableAutomaticPunctuation = true
-            }, RecognitionAudio.FromFile(audioOutputPath));
-
-            Console.WriteLine("⏳ Procesăm transcrierea cu Google Speech-to-Text...");
-
-            // Polling manual pentru progres
-            var startTime = DateTime.Now;
-            int lastProgress = -1;
-            while (!longOperation.IsCompleted)
+                fragments = await FragmentAudioFileAsync(audioOutputPath, 30); // Fragmente de 30 secunde
+            }
+            else
             {
-                // Simulăm progresul
-                var elapsed = DateTime.Now - startTime;
-                int progress = Math.Min(100, (int)(elapsed.TotalSeconds * 2)); // Ajustează viteza progresului aici
-
-                if (progress != lastProgress)
-                {
-                    DrawProgressBar(progress, 100);
-                    lastProgress = progress;
-                }
-
-                await Task.Delay(1000); // Așteptăm un timp înainte de a verifica din nou
+                fragments = new List<string> { audioOutputPath };
             }
 
-            DrawProgressBar(100, 100);
-            Console.WriteLine("\n✅ Transcriere completă!");
+            // Transcriem în batch-uri
+            var fullTranscription = await TranscribeInBatchesAsync(fragments, request.Language, batchSize: 5);
 
-            // Verificăm dacă operația s-a finalizat cu succes
-            if (!longOperation.IsCompleted || longOperation.Exception != null)
-            {
-                Console.WriteLine($"❌ Eroare în transcrierea audio cu Google Speech-to-Text.");
-                if (longOperation.Exception != null)
-                {
-                    Console.WriteLine($"Detalii eroare: {longOperation.Exception.Message}");
-                    return BadRequest($"❌ Eroare detaliată: {longOperation.Exception.Message}");
-                }
-                return BadRequest("❌ Eroare în transcrierea audio cu Google Speech-to-Text.");
-            }
+            // Salvăm transcrierea într-un fișier .txt
+            await System.IO.File.WriteAllTextAsync(transcriptOutputPath, fullTranscription);
+            Log.Information("✅ Transcriere salvată în: {TranscriptPath}", transcriptOutputPath);
 
-            var response = longOperation.Result;
-
-            // Creăm documentul .docx
-            Console.WriteLine("📄 Creăm documentul .docx...");
-            using (WordprocessingDocument doc = WordprocessingDocument.Create(transcriptOutputPath, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
-            {
-                MainDocumentPart mainPart = doc.AddMainDocumentPart();
-                mainPart.Document = new Document();
-                Body body = new Body();
-
-                foreach (var result in response.Results)
-                {
-                    foreach (var alternative in result.Alternatives)
-                    {
-                        var para = new Paragraph(new Run(new Text(alternative.Transcript)));
-                        body.Append(para);
-                        Console.WriteLine($"💬 Transcriere: {alternative.Transcript}");
-                    }
-                }
-
-                mainPart.Document.Append(body);
-                mainPart.Document.Save();
-            }
-
-            Console.WriteLine($"✅ Transcriere salvată în: {transcriptOutputPath}");
-
-            // Returnăm fișierul .docx
+            // Returnăm fișierul .txt pentru descărcare
             var fileBytes = await System.IO.File.ReadAllBytesAsync(transcriptOutputPath);
-            return File(fileBytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Path.GetFileName(transcriptOutputPath));
+            return File(fileBytes, "text/plain", Path.GetFileName(transcriptOutputPath));
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Eroare neașteptată: {ex.Message}");
+            Log.Fatal("❌ Eroare neașteptată: {ErrorMessage}", ex.Message);
             return StatusCode(500, $"❌ Eroare internă: {ex.Message}");
         }
     }
 
-    static void DrawProgressBar(int progress, int total, int barSize = 50)
+    private async Task DownloadVideoAsync(string url, string outputPath)
     {
-        double percent = (double)progress / total;
-        int filledBars = (int)(percent * barSize);
-        string progressBar = $"[{new string('#', filledBars)}{new string('-', barSize - filledBars)}] {percent:P0}";
-        Console.SetCursorPosition(0, Console.CursorTop);
-        Console.Write(progressBar);
+        var ytDlpCommand = $@"C:\Python313\Scripts\yt-dlp.exe -f ""bestaudio[ext=m4a]+bestvideo[ext=mp4]/mp4"" -o ""{outputPath}"" {url}";
+
+        Log.Information("⬇️ Descarcăm video cu yt-dlp...");
+
+        try
+        {
+            var cmd = Cli.Wrap("cmd")
+                .WithArguments($"/C {ytDlpCommand}")
+                .WithValidation(CommandResultValidation.None);
+
+            await cmd.WithStandardOutputPipe(PipeTarget.ToDelegate(line =>
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    Log.Information($"yt-dlp Output: {line}");
+                }
+            }))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    Log.Error($"yt-dlp Error: {line}");
+                }
+            }))
+            .ExecuteAsync();
+
+            if (!System.IO.File.Exists(outputPath))
+            {
+                throw new Exception("❌ Descărcarea a eșuat. Fișierul video nu a fost găsit.");
+            }
+
+
+            Log.Information("✅ Video descărcat cu succes la: {OutputPath}", outputPath);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("❌ Eroare în timpul descărcării: {Message}", ex.Message);
+            throw;
+        }
     }
 
-    private double CalculateWER(string reference, string hypothesis)
+    private async Task ConvertAndNormalizeAudioAsync(string videoPath, string audioPath)
     {
-        var refWords = reference.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var hypWords = hypothesis.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var ffmpegCommand = $"ffmpeg -i \"{videoPath}\" -vn -ac 1 -ar 16000 -acodec pcm_s16le -af loudnorm \"{audioPath}\"";
 
-        int[,] distance = new int[refWords.Length + 1, hypWords.Length + 1];
+        Log.Information("🎵 Convertim și normalizăm audio cu ffmpeg...");
+        await Cli.Wrap("cmd")
+            .WithArguments($"/C {ffmpegCommand}")
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteAsync();
+    }
 
-        for (int i = 0; i <= refWords.Length; i++) distance[i, 0] = i;
-        for (int j = 0; j <= hypWords.Length; j++) distance[0, j] = j;
+    private async Task<AudioInfo> GetAudioInfoAsync(string audioPath)
+    {
+        var ffprobeCommand = $"ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1:nokey=1 \"{audioPath}\"";
+        var result = await Cli.Wrap("cmd")
+            .WithArguments($"/C {ffprobeCommand}")
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteBufferedAsync();
 
-        for (int i = 1; i <= refWords.Length; i++)
+        var lines = result.StandardOutput.Split('\n');
+        double duration = double.Parse(lines[0]);
+        long fileSize = long.Parse(lines[1]);
+
+        return new AudioInfo(TimeSpan.FromSeconds(duration), fileSize);
+    }
+
+    private async Task<List<string>> FragmentAudioFileAsync(string inputFile, int segmentDuration)
+    {
+        var fragments = new List<string>();
+        var tempDir = Path.Combine(Path.GetDirectoryName(inputFile), "fragments");
+        Directory.CreateDirectory(tempDir);
+
+        var outputPattern = Path.Combine(tempDir, "fragment_%03d.wav");
+        var ffmpegCommand = $"ffmpeg -i \"{inputFile}\" -f segment -segment_time {segmentDuration} -c copy \"{outputPattern}\"";
+
+        Log.Information("🔪 Fragmentăm audio-ul cu ffmpeg...");
+        await Cli.Wrap("cmd")
+            .WithArguments($"/C {ffmpegCommand}")
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteAsync();
+
+        fragments.AddRange(Directory.GetFiles(tempDir, "fragment_*.wav"));
+        Log.Information("✅ Fragmentare completă. Total fragmente: {Count}", fragments.Count);
+
+        return fragments;
+    }
+
+    private async Task<string> TranscribeInBatchesAsync(List<string> fragments, string language, int batchSize)
+    {
+        var speechClient = SpeechClient.Create();
+        var transcriptions = new List<string>();
+
+        for (int i = 0; i < fragments.Count; i += batchSize)
         {
-            for (int j = 1; j <= hypWords.Length; j++)
+            var batch = fragments.Skip(i).Take(batchSize).ToList();
+            Log.Information("📝 Transcriem batch-ul {BatchNumber}/{TotalBatches}", (i / batchSize) + 1, (int)Math.Ceiling((double)fragments.Count / batchSize));
+
+            var tasks = batch.Select(async fragment =>
             {
-                int cost = refWords[i - 1].Equals(hypWords[j - 1], StringComparison.OrdinalIgnoreCase) ? 0 : 1;
-                distance[i, j] = new[] {
-                    distance[i - 1, j] + 1,
-                    distance[i, j - 1] + 1,
-                    distance[i - 1, j - 1] + cost
-                }.Min();
-            }
+                try
+                {
+                    var recognitionConfig = new RecognitionConfig
+                    {
+                        Encoding = RecognitionConfig.Types.AudioEncoding.Linear16,
+                        SampleRateHertz = 16000,
+                        LanguageCode = language,
+                        EnableAutomaticPunctuation = true,
+                        AudioChannelCount = 1,
+                        UseEnhanced = true
+                    };
+
+                    var longOperation = await speechClient.LongRunningRecognizeAsync(
+                        recognitionConfig,
+                        RecognitionAudio.FromFile(fragment)
+                    );
+
+                    var completedOperation = await longOperation.PollUntilCompletedAsync();
+
+                    if (completedOperation == null || completedOperation.IsFaulted)
+                    {
+                        Log.Warning("⚠️ Eroare la transcrierea fragmentului {Fragment}", fragment);
+                        return string.Empty;
+                    }
+
+                    var response = completedOperation.Result;
+                    var transcript = string.Join(" ", response.Results.Select(r => r.Alternatives.First().Transcript));
+
+                    Log.Information("✅ Transcriere completă pentru fragmentul: {Fragment}", fragment);
+                    return transcript;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("❌ Eroare la transcrierea fragmentului {Fragment}: {ErrorMessage}", fragment, ex.Message);
+                    return string.Empty;
+                }
+            });
+
+            var results = await Task.WhenAll(tasks);
+            transcriptions.AddRange(results.Where(t => !string.IsNullOrEmpty(t)));
         }
 
-        double wer = (double)distance[refWords.Length, hypWords.Length] / refWords.Length;
-        return Math.Max(0, Math.Min(wer, 1));
+        return string.Join(" ", transcriptions);
     }
+
+    private record AudioInfo(TimeSpan Duration, long FileSize);
 }
